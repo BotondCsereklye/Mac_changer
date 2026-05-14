@@ -11,6 +11,10 @@ set "STATE_FILE=%SCRIPT_DIR%last_ssid.txt"
 set "DEFAULT_IFACE=WLAN"
 set "RUNTIME_ID=%RANDOM%%RANDOM%"
 set "RUNTIME_DIR=%TEMP%\wlan_mac_randomization_%RUNTIME_ID%"
+set "UPDATED_FILE=%RUNTIME_DIR%\updated.txt"
+set "FALLBACK_FILE=%RUNTIME_DIR%\fallback.txt"
+set "FAILED_FILE=%RUNTIME_DIR%\failed.txt"
+set "ERROR_FILE=%RUNTIME_DIR%\errors.txt"
 set "DETECTED_IFACE="
 set "CURRENT_SSID="
 set "CURRENT_PROFILE="
@@ -62,7 +66,14 @@ if errorlevel 1 goto :MenuApplyAll
 goto :MainMenu
 
 :MenuApplyAll
-echo [INFO] Die Aktivierung fuer alle Profile folgt im naechsten Schritt.
+call :ResetRunState
+call :EnableGlobalRandomization
+echo.
+echo [INFO] Aktuelle Verbindung:
+netsh wlan show interfaces
+echo.
+call :ShowCurrentMac
+call :DisplaySummary
 echo.
 pause
 goto :MainMenu
@@ -101,6 +112,10 @@ exit /b 1
 set "CURRENT_SSID="
 set "CURRENT_PROFILE="
 set "CURRENT_MAC="
+type nul > "%UPDATED_FILE%"
+type nul > "%FALLBACK_FILE%"
+type nul > "%FAILED_FILE%"
+type nul > "%ERROR_FILE%"
 exit /b 0
 
 :DetectWlanInterface
@@ -127,6 +142,45 @@ call :RefreshStatus
 echo [INFO] Aktuelle Adapterdaten:
 set "PS_IFACE=%DETECTED_IFACE%"
 powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-NetAdapter -Name $env:PS_IFACE -ErrorAction SilentlyContinue | Format-Table Name, InterfaceDescription, MacAddress, Status -AutoSize"
+exit /b 0
+
+:EnableGlobalRandomization
+echo [INFO] Aktiviere globale MAC-Randomization fuer "%DETECTED_IFACE%"...
+netsh wlan set randomization enabled=yes interface="%DETECTED_IFACE%" >nul 2>&1
+if errorlevel 1 (
+    echo [FEHLER] Globale Randomization konnte fuer "%DETECTED_IFACE%" nicht aktiviert werden.
+    call :AddError "Globale MAC-Randomization konnte nicht aktiviert werden."
+    exit /b 1
+)
+echo [OK] Globale MAC-Randomization ist fuer "%DETECTED_IFACE%" aktiv.
+exit /b 0
+
+:AddError
+>> "%ERROR_FILE%" echo(%~1
+exit /b 0
+
+:DisplaySummary
+call :RefreshStatus
+echo ================================================
+echo Zusammenfassung
+echo ================================================
+echo Adaptername          : %DETECTED_IFACE%
+if defined CURRENT_SSID (
+    echo Aktuelle SSID     : %CURRENT_SSID%
+) else (
+    echo Aktuelle SSID     : Nicht verbunden
+)
+if defined CURRENT_MAC (
+    echo Aktive MAC        : %CURRENT_MAC%
+) else (
+    echo Aktive MAC        : Unbekannt
+)
+if exist "%ERROR_FILE%" (
+    echo.
+    echo Hinweise:
+    type "%ERROR_FILE%"
+)
+echo ================================================
 exit /b 0
 
 :CleanupAndExit
