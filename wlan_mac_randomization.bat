@@ -19,6 +19,7 @@ set "DETECTED_IFACE="
 set "CURRENT_SSID="
 set "CURRENT_PROFILE="
 set "CURRENT_MAC="
+set "TARGET_PROFILE="
 
 if not exist "%RUNTIME_DIR%" md "%RUNTIME_DIR%" >nul 2>&1
 
@@ -68,6 +69,13 @@ goto :MainMenu
 :MenuApplyAll
 call :ResetRunState
 call :EnableGlobalRandomization
+call :RefreshStatus
+if defined CURRENT_PROFILE (
+    call :ProcessCurrentProfile
+) else (
+    echo [HINWEIS] Es ist aktuell kein WLAN-Profil aktiv.
+    call :AddError "Kein aktives WLAN-Profil erkannt."
+)
 echo.
 echo [INFO] Aktuelle Verbindung:
 netsh wlan show interfaces
@@ -112,6 +120,11 @@ exit /b 1
 set "CURRENT_SSID="
 set "CURRENT_PROFILE="
 set "CURRENT_MAC="
+set "TARGET_PROFILE="
+set /a PROFILE_TOTAL=0
+set /a UPDATED_COUNT=0
+set /a FALLBACK_COUNT=0
+set /a FAILED_COUNT=0
 type nul > "%UPDATED_FILE%"
 type nul > "%FALLBACK_FILE%"
 type nul > "%FAILED_FILE%"
@@ -155,6 +168,55 @@ if errorlevel 1 (
 echo [OK] Globale MAC-Randomization ist fuer "%DETECTED_IFACE%" aktiv.
 exit /b 0
 
+:SetCurrentProfileRandomization
+set "PROFILE_RESULT=FAILED"
+if not defined CURRENT_PROFILE (
+    echo [FEHLER] Es wurde kein WLAN-Profil zum Aktualisieren erkannt.
+    call :AddError "Kein WLAN-Profil zum Aktualisieren erkannt."
+    exit /b 1
+)
+
+echo [INFO] Setze Profil "%CURRENT_PROFILE%" auf Randomization=daily...
+netsh wlan set profileparameter name="%CURRENT_PROFILE%" interface="%DETECTED_IFACE%" randomization=daily >nul 2>&1
+if not errorlevel 1 (
+    set "PROFILE_RESULT=DAILY"
+    echo [OK] Profil "%CURRENT_PROFILE%" wurde auf daily gesetzt.
+    exit /b 0
+)
+
+echo [HINWEIS] "daily" wurde fuer "%CURRENT_PROFILE%" nicht akzeptiert. Versuche Fallback auf "yes"...
+netsh wlan set profileparameter name="%CURRENT_PROFILE%" interface="%DETECTED_IFACE%" randomization=yes >nul 2>&1
+if not errorlevel 1 (
+    set "PROFILE_RESULT=YES"
+    echo [OK] Profil "%CURRENT_PROFILE%" wurde ersatzweise auf yes gesetzt.
+    exit /b 0
+)
+
+echo [FEHLER] Profil "%CURRENT_PROFILE%" konnte nicht aktualisiert werden.
+set "PROFILE_RESULT=FAILED"
+exit /b 1
+
+:ProcessCurrentProfile
+set /a PROFILE_TOTAL+=1
+call :SetCurrentProfileRandomization
+
+if /i "%PROFILE_RESULT%"=="DAILY" (
+    set /a UPDATED_COUNT+=1
+    >> "%UPDATED_FILE%" echo(%CURRENT_PROFILE% [daily]
+    exit /b 0
+)
+
+if /i "%PROFILE_RESULT%"=="YES" (
+    set /a FALLBACK_COUNT+=1
+    >> "%FALLBACK_FILE%" echo(%CURRENT_PROFILE% [yes-Fallback]
+    exit /b 0
+)
+
+set /a FAILED_COUNT+=1
+>> "%FAILED_FILE%" echo(%CURRENT_PROFILE%
+call :AddError "Mindestens ein WLAN-Profil konnte nicht aktualisiert werden."
+exit /b 1
+
 :AddError
 >> "%ERROR_FILE%" echo(%~1
 exit /b 0
@@ -175,6 +237,29 @@ if defined CURRENT_MAC (
 ) else (
     echo Aktive MAC        : Unbekannt
 )
+echo Profile gesamt       : %PROFILE_TOTAL%
+echo Erfolgreich daily    : %UPDATED_COUNT%
+echo Fallback auf yes     : %FALLBACK_COUNT%
+echo Fehlgeschlagen       : %FAILED_COUNT%
+
+if %UPDATED_COUNT% GTR 0 (
+    echo.
+    echo Aktualisierte Profile:
+    type "%UPDATED_FILE%"
+)
+
+if %FALLBACK_COUNT% GTR 0 (
+    echo.
+    echo Profile mit yes-Fallback:
+    type "%FALLBACK_FILE%"
+)
+
+if %FAILED_COUNT% GTR 0 (
+    echo.
+    echo Nicht aktualisierte Profile:
+    type "%FAILED_FILE%"
+)
+
 if exist "%ERROR_FILE%" (
     echo.
     echo Hinweise:
