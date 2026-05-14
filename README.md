@@ -10,6 +10,14 @@ Das Projekt aktiviert die zufaellige Hardwareadresse fuer den WLAN-Adapter ueber
 
 - `wlan_mac_randomization.bat`: interaktives Batchskript fuer Admin-Start, Adapter-Erkennung, Profil-Updates, Statusanzeige und optionale Scheduled Tasks
 
+## Menue
+
+- `[1]` Randomization jetzt fuer alle Profile aktivieren
+- `[2]` Aktuelle WLAN-MAC anzeigen
+- `[3]` WLAN trennen und wieder verbinden
+- `[4]` Autostart / Scheduled Task installieren
+- `[5]` Beenden
+
 ## Verwendete Windows-Befehle
 
 - `netsh wlan show profiles`
@@ -23,3 +31,4 @@ Das Projekt aktiviert die zufaellige Hardwareadresse fuer den WLAN-Adapter ueber
 - Das Skript ist fuer Windows 11 gedacht.
 - Es nutzt nur Windows-eigene Befehle und PowerShell.
 - WLAN-Profile werden nicht geloescht.
+- Die geplante Hintergrundpruefung nutzt `last_ssid.txt` im gleichen Ordner.

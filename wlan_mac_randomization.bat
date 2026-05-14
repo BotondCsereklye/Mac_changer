@@ -124,6 +124,7 @@ set /a PROFILE_TOTAL=0
 set /a UPDATED_COUNT=0
 set /a FALLBACK_COUNT=0
 set /a FAILED_COUNT=0
+set /a ERROR_COUNT=0
 type nul > "%UPDATED_FILE%"
 type nul > "%FALLBACK_FILE%"
 type nul > "%FAILED_FILE%"
@@ -310,10 +311,55 @@ exit /b 0
 :ScheduledCheck
 echo [INFO] Geplanter Hintergrundlauf startet...
 call :RefreshStatus
+
+if not defined CURRENT_SSID (
+    echo [INFO] Keine aktive WLAN-SSID erkannt. Es wird nichts geaendert.
+    exit /b 0
+)
+
+set "LAST_SSID="
+if exist "%STATE_FILE%" set /p LAST_SSID=<"%STATE_FILE%"
+
+if /i "%LAST_SSID%"=="%CURRENT_SSID%" (
+    echo [INFO] SSID unveraendert: "%CURRENT_SSID%". Kein erneutes Setzen notwendig.
+    if defined CURRENT_MAC echo [INFO] Aktive MAC-Adresse: %CURRENT_MAC%
+    exit /b 0
+)
+
+echo [INFO] WLAN-Wechsel erkannt.
+if defined LAST_SSID (
+    echo        Alt: %LAST_SSID%
+) else (
+    echo        Alt: ^<leer^>
+)
+echo        Neu: %CURRENT_SSID%
+
+call :EnableGlobalRandomization
+set /a PROFILE_TOTAL=1
+call :SetCurrentProfileRandomization
+
+if /i "%PROFILE_RESULT%"=="DAILY" (
+    set /a UPDATED_COUNT+=1
+    >> "%UPDATED_FILE%" echo(%CURRENT_PROFILE% [daily]
+) else (
+    if /i "%PROFILE_RESULT%"=="YES" (
+        set /a FALLBACK_COUNT+=1
+        >> "%FALLBACK_FILE%" echo(%CURRENT_PROFILE% [yes-Fallback]
+    ) else (
+        set /a FAILED_COUNT+=1
+        >> "%FAILED_FILE%" echo(%CURRENT_PROFILE%
+        call :AddError "Aktuelles WLAN-Profil konnte im geplanten Lauf nicht aktualisiert werden."
+    )
+)
+
+call :WriteCurrentSSIDState
+call :RefreshStatus
 if defined CURRENT_MAC echo [INFO] Aktive MAC-Adresse: %CURRENT_MAC%
+call :DisplaySummary
 exit /b 0
 
 :AddError
+set /a ERROR_COUNT+=1
 >> "%ERROR_FILE%" echo(%~1
 exit /b 0
 
@@ -337,6 +383,7 @@ echo Profile gesamt       : %PROFILE_TOTAL%
 echo Erfolgreich daily    : %UPDATED_COUNT%
 echo Fallback auf yes     : %FALLBACK_COUNT%
 echo Fehlgeschlagen       : %FAILED_COUNT%
+echo Fehleranzahl         : %ERROR_COUNT%
 
 if %UPDATED_COUNT% GTR 0 (
     echo.
