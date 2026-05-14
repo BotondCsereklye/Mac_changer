@@ -68,20 +68,7 @@ goto :MainMenu
 
 :MenuApplyAll
 call :ResetRunState
-call :EnableGlobalRandomization
-call :RefreshStatus
-if defined CURRENT_PROFILE (
-    call :ProcessCurrentProfile
-) else (
-    echo [HINWEIS] Es ist aktuell kein WLAN-Profil aktiv.
-    call :AddError "Kein aktives WLAN-Profil erkannt."
-)
-echo.
-echo [INFO] Aktuelle Verbindung:
-netsh wlan show interfaces
-echo.
-call :ShowCurrentMac
-call :DisplaySummary
+call :ApplyRandomizationAllProfiles
 echo.
 pause
 goto :MainMenu
@@ -216,6 +203,32 @@ set /a FAILED_COUNT+=1
 >> "%FAILED_FILE%" echo(%CURRENT_PROFILE%
 call :AddError "Mindestens ein WLAN-Profil konnte nicht aktualisiert werden."
 exit /b 1
+
+:ApplyRandomizationAllProfiles
+call :EnableGlobalRandomization
+echo.
+echo [INFO] Lese gespeicherte WLAN-Profile mit "netsh wlan show profiles"...
+set "PS_IFACE=%DETECTED_IFACE%"
+set "PROFILE_FOUND="
+
+for /f "usebackq delims=" %%P in (`powershell -NoProfile -ExecutionPolicy Bypass -Command "$iface = $env:PS_IFACE; netsh wlan show profiles interface=""$iface"" 2>$null | ForEach-Object { if ($_ -match '^\s{2,}.*(?:Profile|Profil)[^:]*:\s*(.+)$') { $name = $matches[1].Trim(); if ($name -and $name -notmatch '^(<None>|<Keine>)$') { $name } } } | Select-Object -Unique"`) do (
+    set "PROFILE_FOUND=1"
+    set "CURRENT_PROFILE=%%P"
+    call :ProcessCurrentProfile
+)
+
+if not defined PROFILE_FOUND (
+    echo [HINWEIS] Es wurden keine gespeicherten WLAN-Profile gefunden.
+    call :AddError "Keine gespeicherten WLAN-Profile gefunden."
+)
+
+echo.
+echo [INFO] Aktuelle Verbindung:
+netsh wlan show interfaces
+echo.
+call :ShowCurrentMac
+call :DisplaySummary
+exit /b 0
 
 :AddError
 >> "%ERROR_FILE%" echo(%~1
