@@ -9,6 +9,8 @@ set "SCRIPT_PATH=%~f0"
 set "SCRIPT_DIR=%~dp0"
 set "STATE_FILE=%SCRIPT_DIR%last_ssid.txt"
 set "DEFAULT_IFACE=WLAN"
+set "TASK_LOGON_NAME=WLAN-MAC-Randomization-Login"
+set "TASK_MONITOR_NAME=WLAN-MAC-Randomization-10Min"
 set "RUNTIME_ID=%RANDOM%%RANDOM%"
 set "RUNTIME_DIR=%TEMP%\wlan_mac_randomization_%RUNTIME_ID%"
 set "UPDATED_FILE=%RUNTIME_DIR%\updated.txt"
@@ -20,6 +22,9 @@ set "CURRENT_SSID="
 set "CURRENT_PROFILE="
 set "CURRENT_MAC="
 set "TARGET_PROFILE="
+set "SCHEDULED_MODE=0"
+
+if /i "%~1"=="--scheduled" set "SCHEDULED_MODE=1"
 
 if not exist "%RUNTIME_DIR%" md "%RUNTIME_DIR%" >nul 2>&1
 
@@ -30,6 +35,11 @@ call :DetectWlanInterface
 
 if not defined DETECTED_IFACE (
     echo [FEHLER] Kein WLAN-Adapter gefunden. Geprueft wurden aktive WLAN-Schnittstellen, "WLAN" und "Wi-Fi".
+    goto :CleanupAndExit
+)
+
+if "%SCHEDULED_MODE%"=="1" (
+    call :ScheduledCheck
     goto :CleanupAndExit
 )
 
@@ -87,7 +97,8 @@ pause
 goto :MainMenu
 
 :MenuInstallTasks
-echo [INFO] Die Scheduled-Task-Installation folgt im naechsten Schritt.
+call :ResetRunState
+call :InstallScheduledTasks
 echo.
 pause
 goto :MainMenu
@@ -272,6 +283,34 @@ exit /b 0
 if defined CURRENT_SSID (
     > "%STATE_FILE%" echo(%CURRENT_SSID%
 )
+exit /b 0
+
+:InstallScheduledTasks
+echo [INFO] Erstelle geplante Aufgaben fuer Login und 10-Minuten-Pruefung...
+set "PS_SCRIPT_PATH=%SCRIPT_PATH%"
+set "PS_TASK_LOGON=%TASK_LOGON_NAME%"
+set "PS_TASK_MONITOR=%TASK_MONITOR_NAME%"
+
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$script = $env:PS_SCRIPT_PATH; $taskLogon = $env:PS_TASK_LOGON; $taskMonitor = $env:PS_TASK_MONITOR; $user = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name; $action = New-ScheduledTaskAction -Execute $env:ComSpec -Argument ('/c ""{0}"" --scheduled' -f $script); $principal = New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive -RunLevel Highest; $triggerLogon = New-ScheduledTaskTrigger -AtLogOn -User $user; $triggerMonitor = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes 10) -RepetitionDuration (New-TimeSpan -Days 3650); Register-ScheduledTask -TaskName $taskLogon -Action $action -Trigger $triggerLogon -Principal $principal -Description 'Aktiviert WLAN MAC Randomization beim Login.' -Force | Out-Null; Register-ScheduledTask -TaskName $taskMonitor -Action $action -Trigger $triggerMonitor -Principal $principal -Description 'Prueft alle 10 Minuten auf WLAN-Wechsel und aktualisiert WLAN MAC Randomization.' -Force | Out-Null" >nul 2>&1
+
+if errorlevel 1 (
+    echo [FEHLER] Scheduled Tasks konnten nicht erstellt werden.
+    call :AddError "Geplante Aufgaben konnten nicht erstellt werden."
+    call :DisplaySummary
+    exit /b 1
+)
+
+echo [OK] Geplante Aufgaben wurden erstellt:
+echo      - %TASK_LOGON_NAME%
+echo      - %TASK_MONITOR_NAME%
+echo [HINWEIS] Die SSID-Zwischenablage liegt in:
+echo      %STATE_FILE%
+exit /b 0
+
+:ScheduledCheck
+echo [INFO] Geplanter Hintergrundlauf startet...
+call :RefreshStatus
+if defined CURRENT_MAC echo [INFO] Aktive MAC-Adresse: %CURRENT_MAC%
 exit /b 0
 
 :AddError
