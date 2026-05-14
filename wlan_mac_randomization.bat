@@ -80,7 +80,8 @@ pause
 goto :MainMenu
 
 :MenuReconnect
-echo [INFO] Die Trennen/Wiederverbinden-Funktion folgt im naechsten Schritt.
+call :ResetRunState
+call :ReconnectWlan
 echo.
 pause
 goto :MainMenu
@@ -227,7 +228,50 @@ echo [INFO] Aktuelle Verbindung:
 netsh wlan show interfaces
 echo.
 call :ShowCurrentMac
+call :RefreshStatus
+call :WriteCurrentSSIDState
 call :DisplaySummary
+exit /b 0
+
+:ReconnectWlan
+call :RefreshStatus
+if not defined CURRENT_PROFILE (
+    echo [FEHLER] Keine aktive WLAN-Verbindung erkannt. Reconnect ist deshalb nicht moeglich.
+    call :AddError "Reconnect nicht moeglich, weil kein aktives WLAN-Profil erkannt wurde."
+    call :DisplaySummary
+    exit /b 1
+)
+
+set "TARGET_PROFILE=%CURRENT_PROFILE%"
+echo [INFO] Trenne WLAN-Adapter "%DETECTED_IFACE%"...
+netsh wlan disconnect interface="%DETECTED_IFACE%" >nul 2>&1
+timeout /t 3 >nul
+
+echo [INFO] Verbinde erneut mit Profil "%TARGET_PROFILE%"...
+netsh wlan connect name="%TARGET_PROFILE%" interface="%DETECTED_IFACE%" >nul 2>&1
+if errorlevel 1 (
+    echo [FEHLER] Die Wiederverbindung mit "%TARGET_PROFILE%" ist fehlgeschlagen.
+    call :AddError "Wiederverbindung mit dem aktuellen WLAN-Profil ist fehlgeschlagen."
+    call :DisplaySummary
+    exit /b 1
+)
+
+timeout /t 5 >nul
+call :RefreshStatus
+call :WriteCurrentSSIDState
+echo [OK] WLAN wurde getrennt und erneut verbunden.
+echo.
+echo [INFO] Aktuelle Verbindung:
+netsh wlan show interfaces
+echo.
+call :ShowCurrentMac
+call :DisplaySummary
+exit /b 0
+
+:WriteCurrentSSIDState
+if defined CURRENT_SSID (
+    > "%STATE_FILE%" echo(%CURRENT_SSID%
+)
 exit /b 0
 
 :AddError
